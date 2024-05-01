@@ -2,6 +2,8 @@
 # Copyright (c) Contributors to the OpenEXR Project.
 
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
+load("@rules_pkg//pkg:zip.bzl", "pkg_zip")
 
 config_setting(
     name = "windows",
@@ -147,6 +149,27 @@ cc_library(
     deps = [":Iex"],
 )
 
+filegroup(
+    name = "OpenEXRCoreHeaders",
+    srcs = [
+        "src/lib/OpenEXRCore/openexr.h",
+        "src/lib/OpenEXRCore/openexr_attr.h",
+        "src/lib/OpenEXRCore/openexr_base.h",
+        "src/lib/OpenEXRCore/openexr_chunkio.h",
+        "src/lib/OpenEXRCore/openexr_coding.h",
+        "src/lib/OpenEXRCore/openexr_compression.h",
+        "src/lib/OpenEXRCore/openexr_config.h",
+        "src/lib/OpenEXRCore/openexr_context.h",
+        "src/lib/OpenEXRCore/openexr_debug.h",
+        "src/lib/OpenEXRCore/openexr_decode.h",
+        "src/lib/OpenEXRCore/openexr_encode.h",
+        "src/lib/OpenEXRCore/openexr_errors.h",
+        "src/lib/OpenEXRCore/openexr_part.h",
+        "src/lib/OpenEXRCore/openexr_std_attr.h",
+    ],
+    visibility = ["//visibility:private"],
+)
+
 cc_library(
     name = "OpenEXRCore",
     srcs = [
@@ -218,20 +241,7 @@ cc_library(
         "src/lib/OpenEXRCore/write_header.c",
     ],
     hdrs = [
-        "src/lib/OpenEXRCore/openexr.h",
-        "src/lib/OpenEXRCore/openexr_attr.h",
-        "src/lib/OpenEXRCore/openexr_base.h",
-        "src/lib/OpenEXRCore/openexr_chunkio.h",
-        "src/lib/OpenEXRCore/openexr_coding.h",
-        "src/lib/OpenEXRCore/openexr_compression.h",
-        "src/lib/OpenEXRCore/openexr_config.h",
-        "src/lib/OpenEXRCore/openexr_context.h",
-        "src/lib/OpenEXRCore/openexr_debug.h",
-        "src/lib/OpenEXRCore/openexr_decode.h",
-        "src/lib/OpenEXRCore/openexr_encode.h",
-        "src/lib/OpenEXRCore/openexr_errors.h",
-        "src/lib/OpenEXRCore/openexr_part.h",
-        "src/lib/OpenEXRCore/openexr_std_attr.h",
+        ":OpenEXRCoreHeaders",
     ],
     copts = select({
         ":windows": [],
@@ -560,4 +570,41 @@ cc_binary(
     deps = [
         ":OpenEXR",
     ],
+)
+
+
+pkg_files(
+    name = "ImathHeaderFiles",
+    srcs = [
+        "@imath//:ImathConfig"
+    ],
+    prefix = "include/Imath",
+)
+
+pkg_files(
+    name = "OpenEXRCoreHeaderFiles",
+    srcs = [
+        ":IlmThreadConfig",
+        ":OpenEXRConfig",
+        ":OpenEXRCoreHeaders",
+    ],
+    prefix = "include/OpenEXR",
+)
+
+pkg_files(
+    name = "OpenEXRCoreLibraryFiles",
+    srcs = [
+        ":OpenEXRCore",
+    ],
+    prefix = "lib",
+)
+
+pkg_zip(
+    name = "ZipOpenEXRCore",
+    srcs = [
+        ":ImathHeaderFiles",
+        ":OpenEXRCoreHeaderFiles",
+        ":OpenEXRCoreLibraryFiles",
+    ],
+    visibility = ["//visibility:public"],
 )
