@@ -5,6 +5,9 @@
 
 #define PY_SSIZE_T_CLEAN // required for Py_BuildValue("s#") for Python 3.10
 #include <Python.h>
+#include <pybind11/pybind11.h>
+
+namespace py = pybind11;
 
 #if PY_VERSION_HEX < 0x02050000 && !defined(PY_SSIZE_T_MIN)
 typedef int Py_ssize_t;
@@ -144,20 +147,59 @@ split (const std::string& str, const char sep)
 class C_IStream : public IStream
 {
 public:
-    C_IStream (PyObject* fo) : IStream (""), _fo (fo) {}
+    C_IStream (PyObject* fo)
+        : IStream ("<Python Stream>")
+        , _fo (fo)
+        , _stream_pos (0)
+    {
+        if (! PyObject_IsTrue (
+                PyObject_CallMethod (
+                    _fo, (char*) "seekable", NULL)))
+        {
+            PyObject *data = PyObject_CallMethod (
+                _fo, (char*) "getvalue", NULL);
+            if (data)
+            {
+                char *b = NULL;
+                Py_ssize_t len = 0;
+                if (PyBytes_AsStringAndSize (data, &b, &len) == -1)
+                {
+                    Py_XDECREF (data);
+                    throw IEX_NAMESPACE::InputExc ("unable to access bytes");
+                }
+
+                if (len > 0)
+                    _stream_cache.insert (_stream_cache.begin (), b, b + len);
+                Py_DECREF (data);
+            }
+        }
+    }
     virtual bool        read (char c[], int n);
     virtual Int64       tellg ();
     virtual void        seekg (Int64 pos);
     virtual void        clear ();
-    virtual const char* fileName () const;
 
 private:
     PyObject* _fo;
+    std::vector<uint8_t> _stream_cache;
+    size_t _stream_pos;
 };
 
 bool
 C_IStream::read (char c[], int n)
 {
+    if (!_stream_cache.empty())
+    {
+        size_t bend = std::min (_stream_pos + n, _stream_cache.size ());
+        size_t ncopy = bend - _stream_pos;
+        if (ncopy)
+            memcpy (c, _stream_cache.data () + _stream_pos, ncopy);
+        _stream_pos = bend;
+        if (ncopy != n)
+            throw IEX_NAMESPACE::InputExc ("not enough data");
+        return true;
+    }
+
     PyObject* data =
         PyObject_CallMethod (_fo, (char*) "read", (char*) "(i)", n);
     if (data != NULL && PyString_AsString (data) &&
@@ -166,19 +208,20 @@ C_IStream::read (char c[], int n)
         memcpy (c, PyString_AsString (data), PyString_Size (data));
         Py_DECREF (data);
     }
-    else { throw IEX_NAMESPACE::InputExc ("file read failed"); }
-    return 0;
-}
-
-const char*
-C_IStream::fileName () const
-{
-    return "xxx";
+    else
+    {
+        Py_XDECREF (data);
+        throw IEX_NAMESPACE::InputExc ("file read failed");
+    }
+    return true;
 }
 
 Int64
 C_IStream::tellg ()
 {
+    if (!_stream_cache.empty())
+        return (Int64) _stream_pos;
+
     PyObject* rv = PyObject_CallMethod (_fo, (char*) "tell", NULL);
     if (rv != NULL && PyNumber_Check (rv))
     {
@@ -194,6 +237,12 @@ C_IStream::tellg ()
 void
 C_IStream::seekg (Int64 pos)
 {
+    if (!_stream_cache.empty ())
+    {
+        _stream_pos = std::min ((Int64)_stream_cache.size (), std::max (Int64(0), pos));
+        return;
+    }
+
     PyObject* data =
         PyObject_CallMethod (_fo, (char*) "seek", (char*) "(L)", pos);
     if (data != NULL) { Py_DECREF (data); }
@@ -848,7 +897,7 @@ static PyTypeObject InputFile_Type = {
 
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 
-    "OpenEXR Input file object",
+    "OpenEXR Input file object - Deprecated; this class is provided for backwards compatibility and will be removed in a future release",
 
     0,
     0,
@@ -1125,7 +1174,7 @@ static PyTypeObject OutputFile_Type = {
 
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
 
-    "OpenEXR Output file object",
+    "OpenEXR Output file object - Deprecated; this class is provided for backwards compatibility and will be removed in a future release",
 
     0,
     0,
@@ -1442,6 +1491,18 @@ makeHeader (PyObject* self, PyObject* args)
     return dict_from_header (header);
 }
 
+PyObject*
+makeHeader_pybind (int width, int height)
+{
+    const char* channels = "R,G,B";
+    Header header (width, height);
+    for (auto channel: split (channels, ','))
+    {
+        header.channels ().insert (channel.c_str (), Channel (FLOAT));
+    }
+    return dict_from_header (header);
+}
+
 ////////////////////////////////////////////////////////////////////////
 
 static bool
@@ -1483,15 +1544,18 @@ static PyMethodDef methods[] = {
     {NULL, NULL},
 };
 
-MOD_INIT (OpenEXR)
+bool
+init_OpenEXR_old(PyObject* module)
 {
-    PyObject *m, *d, *item;
+    PyObject* moduleDict = PyModule_GetDict (module);
 
-    Imf::staticInitialize ();
-
-    MOD_DEF (m, "OpenEXR", "", methods)
-    d = PyModule_GetDict (m);
-
+    for (PyMethodDef* def = methods; def->ml_name != NULL; def++)
+    {
+        PyObject *func = PyCFunction_New(def, NULL);
+        PyDict_SetItemString(moduleDict, def->ml_name, func);
+        Py_DECREF(func);
+    }
+    
     pModuleImath = PyImport_ImportModule ("Imath");
 
     /* initialize module variables/constants */
@@ -1499,25 +1563,26 @@ MOD_INIT (OpenEXR)
     InputFile_Type.tp_init  = makeInputFile;
     OutputFile_Type.tp_new  = PyType_GenericNew;
     OutputFile_Type.tp_init = makeOutputFile;
-    if (PyType_Ready (&InputFile_Type) != 0) return MOD_ERROR_VAL;
-    if (PyType_Ready (&OutputFile_Type) != 0) return MOD_ERROR_VAL;
-    PyModule_AddObject (m, "InputFile", (PyObject*) &InputFile_Type);
-    PyModule_AddObject (m, "OutputFile", (PyObject*) &OutputFile_Type);
+    
+    if (PyType_Ready (&InputFile_Type) != 0)
+        return false;
+    if (PyType_Ready (&OutputFile_Type) != 0)
+        return false;
+    PyModule_AddObject (module, "InputFile", (PyObject*) &InputFile_Type);
+    PyModule_AddObject (module, "OutputFile", (PyObject*) &OutputFile_Type);
 
-#if PYTHON_API_VERSION >= 1007
     OpenEXR_error = PyErr_NewException ((char*) "OpenEXR.error", NULL, NULL);
-#else
-    OpenEXR_error = PyString_FromString ("OpenEXR.error");
-#endif
-    PyDict_SetItemString (d, "error", OpenEXR_error);
+    PyDict_SetItemString (moduleDict, "error", OpenEXR_error);
     Py_DECREF (OpenEXR_error);
 
-    PyDict_SetItemString (d, "UINT", item = PyLong_FromLong (UINT));
+    PyObject *item;
+
+    PyDict_SetItemString (moduleDict, "UINT_old", item = PyLong_FromLong (UINT));
     Py_DECREF (item);
-    PyDict_SetItemString (d, "HALF", item = PyLong_FromLong (HALF));
+    PyDict_SetItemString (moduleDict, "HALF", item = PyLong_FromLong (HALF));
     Py_DECREF (item);
-    PyDict_SetItemString (d, "FLOAT", item = PyLong_FromLong (FLOAT));
+    PyDict_SetItemString (moduleDict, "FLOAT", item = PyLong_FromLong (FLOAT));
     Py_DECREF (item);
 
-    return MOD_SUCCESS_VAL (m);
+    return true;
 }

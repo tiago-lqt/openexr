@@ -3,4 +3,6 @@
 // Copyright (c) Contributors to the OpenEXR Project.
 //
 
-void testB44ExpLogTable (const std::string&);
+#include <string>
+
+void testCRgba (const std::string& tempDir);

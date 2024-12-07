@@ -11,7 +11,6 @@
 #include "OpenEXRConfigInternal.h"
 
 #include "testAttributes.h"
-#include "testB44ExpLogTable.h"
 #include "testBackwardCompatibility.h"
 #include "testBadTypeAttributes.h"
 #include "testChannels.h"
@@ -29,8 +28,6 @@
 #include "testDeepScanLineHuge.h"
 #include "testDeepScanLineMultipleRead.h"
 #include "testDeepTiledBasic.h"
-#include "testDwaCompressorSimd.h"
-#include "testDwaLookups.h"
 #include "testExistingStreams.h"
 #include "testFutureProofing.h"
 #include "testHeader.h"
@@ -55,6 +52,7 @@
 #include "testPartHelper.h"
 #include "testPreviewImage.h"
 #include "testRgba.h"
+#include "testCRgba.h"
 #include "testRgbaThreading.h"
 #include "testRle.h"
 #include "testSampleImages.h"
@@ -183,6 +181,7 @@ main (int argc, char* argv[])
     TEST (testHuf, "core");
     TEST (testWav, "core");
     TEST (testRgba, "basic");
+    TEST (testCRgba, "basic");
     TEST (testLargeDataWindowOffsets, "basic");
     TEST (testSharedFrameBuffer, "basic");
     TEST (testRgbaThreading, "basic");
@@ -229,10 +228,7 @@ main (int argc, char* argv[])
     TEST (testCopyMultiPartFile, "multi");
     TEST (testBackwardCompatibility, "core");
     TEST (testFutureProofing, "core");
-    TEST (testDwaCompressorSimd, "basic");
     TEST (testRle, "core");
-    TEST (testB44ExpLogTable, "core");
-    TEST (testDwaLookups, "core");
     TEST (testIDManifest, "core");
     TEST (testCpuId, "core");
     TEST (testHeader, "basic");
